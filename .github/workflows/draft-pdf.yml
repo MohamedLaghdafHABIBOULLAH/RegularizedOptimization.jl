@@ -1,4 +1,12 @@
-on: [push]
+name: Build joss paper draft PDF
+on:
+  push:
+    branches:
+      - paper-joss
+    paths: ['paper/paper.pdf']
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['paper/paper.pdf']
 
 jobs:
   paper:
