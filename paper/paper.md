@@ -43,7 +43,7 @@ The library provides a modular and extensible framework for experimenting with r
 
 - **Trust-region methods (TR, TRDH)**,
 - **Quadratic regularization methods (R2, R2N)**,
-- **Levenbergh-Marquadt methods (LM, LMTR)**.
+- **Levenbergh-Marquardt methods (LM, LMTR)**.
 
 These methods rely solely on gradient and Hessian(-vector) information and can handle cases where Hessian approximations are unbounded, making the package particularly suited for large-scale, ill-conditioned, or nonsmooth problems.
 
