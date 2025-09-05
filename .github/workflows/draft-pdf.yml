@@ -1,4 +1,12 @@
-on: [push]
+name: Build joss paper draft PDF
+on:
+  push:
+    branches:
+      - master
+      - main
+      - paper
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   paper:
