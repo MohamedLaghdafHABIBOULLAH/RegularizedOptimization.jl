@@ -2,7 +2,7 @@
 title: 'RegularizedOptimization.jl: A Julia framework for regularization-based nonlinear optimization'
 tags:
   - Julia
-  - nonlinear optimization
+  - nonconvex optimization
   - regularization methods
   - trust-region methods
   - nonsmooth optimization
