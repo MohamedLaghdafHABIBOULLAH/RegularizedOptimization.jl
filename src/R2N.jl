@@ -280,6 +280,7 @@ function SolverCore.solve!(
 
   local ξ1::T
   local ρk::T = zero(T)
+  local prox_evals::Int = 0
 
   fk = obj(nlp, xk)
   grad!(nlp, xk, ∇fk)
@@ -304,6 +305,7 @@ function SolverCore.solve!(
   set_objective!(stats, fk + hk)
   set_solver_specific!(stats, :smooth_obj, fk)
   set_solver_specific!(stats, :nonsmooth_obj, hk)
+  set_solver_specific!(stats, :prox_evals, prox_evals + 1)
   m_monotone > 1 && (m_fh_hist[stats.iter % (m_monotone - 1) + 1] = fk + hk)
 
   φ1 = let ∇fk = ∇fk
@@ -353,10 +355,13 @@ function SolverCore.solve!(
     isa(solver.subsolver, R2DHSolver) && (solver.subsolver.D.d[1] = 1/ν₁)
     if isa(solver.subsolver, R2Solver) #FIXME
       sub_kwargs[:ν] = ν₁
+      solve!(solver.subsolver, solver.subpb, solver.substats; x = s1, atol = sub_atol, rtol = sub_kwargs[:ϵr], ν = sub_kwargs[:ν], max_iter = sub_kwargs[:max_iter])
     else
       sub_kwargs[:σk] = σk
+      solve!(solver.subsolver, solver.subpb, solver.substats; x = s1, atol = sub_atol, rtol = sub_kwargs[:ϵr], σk = sub_kwargs[:σk], max_iter = sub_kwargs[:max_iter])
     end
-    solve!(solver.subsolver, solver.subpb, solver.substats; x = s1, atol = sub_atol, sub_kwargs...)
+    
+    prox_evals += solver.substats.iter
 
     s .= solver.substats.solution
 
@@ -439,6 +444,7 @@ function SolverCore.solve!(
     set_objective!(stats, fk + hk)
     set_solver_specific!(stats, :smooth_obj, fk)
     set_solver_specific!(stats, :nonsmooth_obj, hk)
+    set_solver_specific!(stats, :prox_evals, prox_evals + 1)
     set_iter!(stats, stats.iter + 1)
     set_time!(stats, time() - start_time)
 

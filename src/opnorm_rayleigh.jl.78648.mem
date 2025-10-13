@@ -1,0 +1,31 @@
+        - using LinearAlgebra
+        - 
+        0 function opnorm_Rayleigh(B; max_attempts::Int = 3)
+        -   have_rayleigh = false
+        -   attempt = 0
+        -   λ = zero(eltype(B))
+        0   n = size(B, 1)
+        - 
+        0   while !(have_rayleigh || attempt >= max_attempts)
+        0     attempt += 1
+        -     try
+        -       # Estimate Rayleigh quotient for largest eigenvalue in absolute value
+        -       # Generate a random vector
+       96       x = randn(n)
+        0       x /= norm(x)  # Normalize the vector
+        -       # Compute Rayleigh quotient
+        0       λ = abs(x' * B * x) / (x' * x)
+        -       have_rayleigh = true  # Assume success for this method
+        0       break  # Exit loop if successful
+        -     catch e
+        0       if occursin("XYAUPD_Exception", string(e))
+        0         @warn "Rayleigh error: $e. Retrying with a new random vector."
+        -         # If there's an error, we can just retry with a new random vector
+        -       else
+        0         rethrow(e)  # Re-raise if it's a different error
+        -       end
+        -     end
+        -   end
+        - 
+        0   return λ, have_rayleigh
+        - end
