@@ -18,11 +18,13 @@ const global bpdn, bpdn_nls, sol = bpdn_model(compound)
 const global bpdn2, bpdn_nls2, sol2 = bpdn_model(compound, bounds = true)
 const global λ = norm(grad(bpdn, zeros(bpdn.meta.nvar)), Inf) / 10
 
+R2mono(nlp, h, options; kwargs...) = R2(nlp, h, options; m_monotone=1, kwargs...)
+
 include("test_AL.jl")
 
 for (mod, mod_name) ∈ ((x -> x, "exact"), (LSR1Model, "lsr1"), (LBFGSModel, "lbfgs"))
   for (h, h_name) ∈ ((NormL0(λ), "l0"), (NormL1(λ), "l1"), (IndBallL0(10 * compound), "B0"))
-    for solver_sym ∈ (:R2, :TR)
+    for solver_sym ∈ (:R2, :R2mono, :TR)
       solver_sym == :TR && mod_name == "exact" && continue
       solver_sym == :TR && h_name == "B0" && continue  # FIXME
       solver_name = string(solver_sym)
@@ -31,7 +33,7 @@ for (mod, mod_name) ∈ ((x -> x, "exact"), (LSR1Model, "lsr1"), (LBFGSModel, "l
         x0 = zeros(bpdn.meta.nvar)
         p = randperm(bpdn.meta.nvar)[1:nz]
         x0[p[1:nz]] = sign.(randn(nz))  # initial guess with nz nonzeros (necessary for h = B0)
-        args = solver_sym == :R2 ? () : (NormLinf(1.0),)
+        args = solver_sym ∈ (:R2, :R2mono) ? () : (NormLinf(1.0),)
         out = solver(mod(bpdn), h, args..., options, x0 = x0)
         @test typeof(out.solution) == typeof(bpdn.meta.x0)
         @test length(out.solution) == bpdn.meta.nvar
@@ -135,6 +137,29 @@ for (mod, mod_name) ∈ (
         @test typeof(out.dual_feas) == eltype(out.solution)
         @test out.status == :first_order
         @test out.step_status == (out.iter > 0 ? :accepted : :unknown)
+      end
+    end
+  end
+end
+
+for (mod, mod_name) ∈ ((SpectralGradientModel, "spg"),)
+  for (h, h_name) ∈ ((NormL1(λ), "l1"),)
+    for solver_sym ∈ (:R2,:R2mono)
+      solver_name = string(solver_sym)
+      solver = eval(solver_sym)
+      @testset "bpdn-$(mod_name)-$(solver_name)-$(h_name)-callback" begin
+        x0 = zeros(bpdn.meta.nvar)
+        cb = (regnlp, solver, stats) -> begin
+          if stats.iter == 2
+            stats.status = :user
+          end
+        end
+        out = solver(mod(bpdn), h, options, x0 = x0, callback=cb)
+        @test typeof(out.solution) == typeof(bpdn.meta.x0)
+        @test length(out.solution) == bpdn.meta.nvar
+        @test typeof(out.dual_feas) == eltype(out.solution)
+        @test out.status == :user
+        @test out.iter == 2
       end
     end
   end

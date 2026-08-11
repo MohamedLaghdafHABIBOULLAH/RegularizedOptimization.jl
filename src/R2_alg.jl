@@ -18,9 +18,7 @@ mutable struct R2Solver{
   u_bound::S
   l_bound_m_x::S
   u_bound_m_x::S
-  Fobj_hist::Vector{R}
-  Hobj_hist::Vector{R}
-  Complex_hist::Vector{Int}
+  m_fh_hist::S
 end
 
 function R2Solver(
@@ -29,8 +27,8 @@ function R2Solver(
   l_bound::S,
   u_bound::S;
   ψ = nothing,
+  m_monotone::Int = 6,
 ) where {R <: Real, S <: AbstractVector{R}}
-  maxIter = options.maxIter
   xk = similar(x0)
   ∇fk = similar(x0)
   mν∇fk = similar(x0)
@@ -44,9 +42,7 @@ function R2Solver(
     l_bound_m_x = similar(xk, 0)
     u_bound_m_x = similar(xk, 0)
   end
-  Fobj_hist = zeros(R, maxIter + 2)
-  Hobj_hist = zeros(R, maxIter + 2)
-  Complex_hist = zeros(Int, maxIter + 2)
+  m_fh_hist = fill(T(-Inf), m_monotone - 1)
   return R2Solver(
     xk,
     ∇fk,
@@ -59,13 +55,14 @@ function R2Solver(
     u_bound,
     l_bound_m_x,
     u_bound_m_x,
-    Fobj_hist,
-    Hobj_hist,
-    Complex_hist,
+    m_fh_hist,
   )
 end
 
-function R2Solver(reg_nlp::AbstractRegularizedNLPModel{T, V}; max_iter::Int = 10000) where {T, V}
+function R2Solver(
+  reg_nlp::AbstractRegularizedNLPModel{T, V};
+  m_monotone::Int = 6,
+) where {T, V}
   x0 = reg_nlp.model.meta.x0
   l_bound = reg_nlp.model.meta.lvar
   u_bound = reg_nlp.model.meta.uvar
@@ -85,9 +82,7 @@ function R2Solver(reg_nlp::AbstractRegularizedNLPModel{T, V}; max_iter::Int = 10
     l_bound_m_x = similar(xk, 0)
     u_bound_m_x = similar(xk, 0)
   end
-  Fobj_hist = zeros(T, max_iter + 2)
-  Hobj_hist = zeros(T, max_iter + 2)
-  Complex_hist = zeros(Int, max_iter + 2)
+  m_fh_hist = fill(T(-Inf), m_monotone - 1)
 
   ψ =
     has_bnds ? shifted(reg_nlp.h, xk, l_bound_m_x, u_bound_m_x, reg_nlp.selected) :
@@ -104,9 +99,7 @@ function R2Solver(reg_nlp::AbstractRegularizedNLPModel{T, V}; max_iter::Int = 10
     u_bound,
     l_bound_m_x,
     u_bound_m_x,
-    Fobj_hist,
-    Hobj_hist,
-    Complex_hist,
+    m_fh_hist,
   )
 end
 
@@ -129,7 +122,7 @@ where φ(s ; xₖ) = f(xₖ) + ∇f(xₖ)ᵀs is the Taylor linear approximation
 
 For advanced usage, first define a solver "R2Solver" to preallocate the memory used in the algorithm, and then call `solve!`:
 
-    solver = R2Solver(reg_nlp)
+    solver = R2Solver(reg_nlp; m_monotone = 6)
     solve!(solver, reg_nlp)
 
     stats = RegularizedExecutionStats(reg_nlp)
@@ -153,6 +146,7 @@ For advanced usage, first define a solver "R2Solver" to preallocate the memory u
 - `η2::T = T(0.9)`: successful iteration threshold;
 - `ν::T = eps(T)^(1 / 5)`: multiplicative inverse of the regularization parameter: ν = 1/σ;
 - `γ::T = T(3)`: regularization parameter multiplier, σ := σ/γ when the iteration is very successful and σ := σγ when the iteration is unsuccessful.
+- `m_monotone::Int = 6`: monotonicity parameter. By default, R2 is non-monotone but the monotone variant can be used with `m_monotone = 1`;
 - `compute_obj::Bool = true`: (advanced) whether `f(x₀)` should be computed or not. If set to false, then the value is retrieved from `stats.solver_specific[:smooth_obj]`;
 - `compute_grad::Bool = true`: (advanced) whether `∇f(x₀)` should be computed or not. If set to false, then the value is retrieved from `solver.∇fk`;
 
@@ -230,9 +224,6 @@ function R2(
     kwargs...,
   )
   outdict = Dict(
-    :Fhist => stats.solver_specific[:Fhist],
-    :Hhist => stats.solver_specific[:Hhist],
-    :Chist => stats.solver_specific[:SubsolverCounter],
     :NonSmooth => h,
     :status => stats.status,
     :fk => stats.solver_specific[:smooth_obj],
@@ -273,9 +264,6 @@ function R2(
     kwargs...,
   )
   outdict = Dict(
-    :Fhist => stats.solver_specific[:Fhist],
-    :Hhist => stats.solver_specific[:Hhist],
-    :Chist => stats.solver_specific[:SubsolverCounter],
     :NonSmooth => h,
     :status => stats.status,
     :fk => stats.solver_specific[:smooth_obj],
@@ -288,22 +276,10 @@ end
 
 function R2(reg_nlp::AbstractRegularizedNLPModel; kwargs...)
   kwargs_dict = Dict(kwargs...)
-  max_iter = pop!(kwargs_dict, :max_iter, 10000)
-  solver = R2Solver(reg_nlp, max_iter = max_iter)
-  stats = GenericExecutionStats(reg_nlp.model) # TODO: change this to `stats = RegularizedExecutionStats(reg_nlp)` when FHist etc. is ruled out.
-  cb = pop!(
-    kwargs_dict,
-    :callback,
-    (nlp, solver, stats) -> begin
-      solver.Fobj_hist[stats.iter + 1] = stats.solver_specific[:smooth_obj]
-      solver.Hobj_hist[stats.iter + 1] = stats.solver_specific[:nonsmooth_obj]
-      solver.Complex_hist[stats.iter + 1] += 1
-    end,
-  )
-  solve!(solver, reg_nlp, stats; callback = cb, max_iter = max_iter, kwargs...)
-  set_solver_specific!(stats, :Fhist, solver.Fobj_hist[1:(stats.iter + 1)])
-  set_solver_specific!(stats, :Hhist, solver.Hobj_hist[1:(stats.iter + 1)])
-  set_solver_specific!(stats, :SubsolverCounter, solver.Complex_hist[1:(stats.iter + 1)])
+  m_monotone = pop!(kwargs_dict, :m_monotone, 6)
+  solver = R2Solver(reg_nlp, m_monotone = m_monotone)
+  stats = RegularizedExecutionStats(reg_nlp)
+  solve!(solver, reg_nlp, stats; kwargs_dict...)
   return stats
 end
 
@@ -345,6 +321,7 @@ function SolverCore.solve!(
   ψ = solver.ψ
   xkn = solver.xkn
   s = solver.s
+  m_fh_hist = solver.m_fh_hist .= T(-Inf)
   has_bnds = solver.has_bnds
   if has_bnds
     l_bound, u_bound = solver.l_bound, solver.u_bound
@@ -352,6 +329,7 @@ function SolverCore.solve!(
     update_bounds!(l_bound_m_x, u_bound_m_x, l_bound, u_bound, xk)
     set_bounds!(ψ, l_bound_m_x, u_bound_m_x)
   end
+  m_monotone = length(m_fh_hist) + 1
 
   # initialize parameters
   improper = false
@@ -401,6 +379,7 @@ function SolverCore.solve!(
   set_solver_specific!(stats, :smooth_obj, fk)
   set_solver_specific!(stats, :nonsmooth_obj, hk)
   set_solver_specific!(stats, :sigma, σk)
+  m_monotone > 1 && (m_fh_hist[stats.iter % (m_monotone - 1) + 1] = fk + hk)
 
   φk(d) = dot(∇fk, d)
   mk(d)::T = φk(d) + ψ(d)::T
@@ -443,8 +422,10 @@ function SolverCore.solve!(
     hkn = @views h(xkn[selected])
     improper = (hkn == -Inf)
 
-    Δobj = (fk + hk) - (fkn + hkn) + max(1, abs(fk + hk)) * 10 * eps()
-    ρk = Δobj / ξ
+    fhmax = m_monotone > 1 ? maximum(m_fh_hist) : fk + hk
+    Δobj = fhmax - (fkn + hkn) + max(1, abs(fhmax)) * 10 * eps()
+    Δmod = fhmax - (fk + mks) + max(1, abs(hk)) * 10 * eps()
+    ρk = Δobj / Δmod
 
     verbose > 0 &&
       stats.iter % verbose == 0 &&
@@ -486,6 +467,7 @@ function SolverCore.solve!(
 
     ν = 1 / σk
     @. mν∇fk = -ν * ∇fk
+    m_monotone > 1 && (m_fh_hist[stats.iter % (m_monotone - 1) + 1] = fk + hk)
 
     set_objective!(stats, fk + hk)
     set_solver_specific!(stats, :smooth_obj, fk)
